@@ -386,61 +386,146 @@ export default function Planner({ session, onSignOut }) {
         )}
 
         {/* ═══ SUBJECTS ═══ */}
-        {tab==='subjects'&&(
+        {tab==='subjects'&&(()=>{
+          const totalAvailable = P.getTotalAvailableHours()
+          const totalBudgeted  = P.getTotalBudgeted()
+          const completed      = P.getCompletedHours()
+          const remaining      = totalAvailable - totalBudgeted
+          const overBudget     = totalBudgeted > totalAvailable
+
+          return (
           <div>
-            {/* Subject hours allocation */}
-            {(() => {
-              const stats = P.getSubjectHoursStats()
-              const totalAllocated = Object.values(stats).reduce((a,s)=>a+s.allocated,0)
-              const totalCompleted = Object.values(stats).reduce((a,s)=>a+s.completed,0)
-              return (
-                <div style={{...card, marginBottom:20}}>
-                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,flexWrap:'wrap',gap:8}}>
-                    <div style={{fontSize:10,letterSpacing:3,color:'#F59E0B'}}>REVISION HOURS — FULL PLAN</div>
-                    <div style={{display:'flex',gap:16}}>
-                      <div style={{textAlign:'center'}}>
-                        <div style={{fontSize:20,fontWeight:900,color:'#6366F1'}}>{totalAllocated}</div>
-                        <div style={{fontSize:9,color:'#64748B',letterSpacing:1}}>TOTAL HOURS</div>
-                      </div>
-                      <div style={{textAlign:'center'}}>
-                        <div style={{fontSize:20,fontWeight:900,color:'#10B981'}}>{totalCompleted}</div>
-                        <div style={{fontSize:9,color:'#64748B',letterSpacing:1}}>COMPLETED</div>
-                      </div>
-                      <div style={{textAlign:'center'}}>
-                        <div style={{fontSize:20,fontWeight:900,color:'#F59E0B'}}>{totalAllocated-totalCompleted}</div>
-                        <div style={{fontSize:9,color:'#64748B',letterSpacing:1}}>REMAINING</div>
-                      </div>
-                    </div>
+            {/* Budget summary bar */}
+            <div style={{...card, marginBottom:20, border: overBudget ? '1px solid #EF444460' : '1px solid #1E293B'}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:12,marginBottom:16}}>
+                <div>
+                  <div style={{fontSize:10,letterSpacing:3,color:'#F59E0B',marginBottom:4}}>REVISION BUDGET</div>
+                  <div style={{fontSize:12,color:'#64748B'}}>Allocate your {totalAvailable} available hours across subjects. Daily sessions will prioritise subjects furthest behind target.</div>
+                </div>
+                <div style={{display:'flex',gap:16}}>
+                  <div style={{textAlign:'center'}}>
+                    <div style={{fontSize:24,fontWeight:900,color:'#6366F1'}}>{totalAvailable}</div>
+                    <div style={{fontSize:9,color:'#64748B',letterSpacing:1}}>AVAILABLE</div>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:10}}>
-                    {SUBJECTS.map(s => {
-                      const st = stats[s.id]||{allocated:0,completed:0}
-                      const pct = st.allocated>0 ? Math.round(st.completed/st.allocated*100) : 0
-                      return (
-                        <div key={s.id} style={{background:'#1E293B',borderRadius:8,padding:'10px 14px'}}>
-                          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
-                            <div style={{display:'flex',alignItems:'center',gap:8}}>
-                              <span style={{fontSize:16}}>{s.icon}</span>
-                              <span style={{fontSize:12,fontWeight:700}}>{s.name}</span>
-                            </div>
-                            <div style={{display:'flex',gap:10,fontSize:11}}>
-                              <span style={{color:'#10B981',fontWeight:700}}>{st.completed}h done</span>
-                              <span style={{color:'#475569'}}>/ {st.allocated}h total</span>
-                            </div>
-                          </div>
-                          <div style={{height:6,background:'#0F172A',borderRadius:3,overflow:'hidden',marginBottom:4}}>
-                            <div style={{height:'100%',width:`${pct}%`,background:s.color,borderRadius:3,transition:'width 0.5s',boxShadow:`0 0 6px ${s.color}60`}}/>
-                          </div>
-                          <div style={{fontSize:10,color:'#475569'}}>{pct}% complete · {st.allocated-st.completed}h remaining</div>
-                        </div>
-                      )
-                    })}
+                  <div style={{textAlign:'center'}}>
+                    <div style={{fontSize:24,fontWeight:900,color:'#F59E0B'}}>{totalBudgeted}</div>
+                    <div style={{fontSize:9,color:'#64748B',letterSpacing:1}}>ALLOCATED</div>
+                  </div>
+                  <div style={{textAlign:'center'}}>
+                    <div style={{fontSize:24,fontWeight:900,color: overBudget?'#EF4444':'#10B981'}}>{Math.abs(remaining)}</div>
+                    <div style={{fontSize:9,color:'#64748B',letterSpacing:1}}>{overBudget?'OVER':'UNALLOCATED'}</div>
                   </div>
                 </div>
-              )
-            })()}
+              </div>
+              {/* Budget bar */}
+              <div style={{height:10,background:'#1E293B',borderRadius:5,overflow:'hidden',marginBottom:6}}>
+                <div style={{height:'100%',width:`${Math.min(100,(totalBudgeted/Math.max(totalAvailable,1))*100)}%`,
+                  background: overBudget ? '#EF4444' : 'linear-gradient(90deg,#6366F1,#F59E0B)',
+                  borderRadius:5, transition:'width 0.4s'}}/>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'#475569'}}>
+                <span>{Math.round((totalBudgeted/Math.max(totalAvailable,1))*100)}% allocated</span>
+                {overBudget && <span style={{color:'#EF4444'}}>⚠ {remaining*-1}h over budget — reduce some subjects</span>}
+                {!overBudget && remaining > 0 && <span style={{color:'#10B981'}}>{remaining}h still to allocate</span>}
+                {!overBudget && remaining === 0 && <span style={{color:'#10B981'}}>✓ Fully allocated</span>}
+              </div>
+            </div>
 
-            <div style={{fontSize:10,letterSpacing:3,color:'#64748B',marginBottom:16}}>CONFIDENCE LEVELS — lower confidence = more sessions suggested</div>
+            {/* Subject allocator grid */}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:16}}>
+              {SUBJECTS.map(s => {
+                const conf    = P.confidence[s.id]||3
+                const lp      = getSubjectLevelProgress(P.xp[s.id]||0)
+                const budget  = P.hoursBudget[s.id]||0
+                const done    = completed[s.id]||0
+                const pct     = budget>0 ? Math.min(100,Math.round(done/budget*100)) : 0
+                const exams   = P.examDates[s.id]||[]
+                const firstExam = exams.length ? exams.map(e=>e.date).filter(d=>d).sort()[0] : null
+                const days    = firstExam ? daysUntil(firstExam) : null
+                const confLabel = v => ['','😰 Struggling','😟 Weak','😐 Okay','😊 Good','💪 Strong'][v]||'Not set'
+                const confColor = v => ['','#EF4444','#F97316','#F59E0B','#84CC16','#10B981'][v]||'#475569'
+
+                return (
+                  <div key={s.id} style={{...card, border:`1px solid ${s.color}30`}}>
+                    {/* Header */}
+                    <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
+                      <div style={{fontSize:26,width:36,textAlign:'center'}}>{s.icon}</div>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:700,fontSize:14}}>{s.name}</div>
+                        {firstExam&&<div style={{fontSize:11,color:days<=7?'#EF4444':days<=14?'#F59E0B':'#64748B'}}>
+                          {exams.length} paper{exams.length!==1?'s':''} · first {formatDate(firstExam)}
+                        </div>}
+                      </div>
+                      <div style={{textAlign:'right'}}>
+                        <div style={{fontSize:18,fontWeight:900,color:s.color,lineHeight:1}}>Lv{lp.level}</div>
+                        <div style={{fontSize:9,color:'#475569'}}>{P.xp[s.id]||0} XP</div>
+                      </div>
+                    </div>
+
+                    {/* XP bar */}
+                    <XPBar current={lp.current} max={lp.next} color={s.color} height={4}/>
+                    <div style={{fontSize:9,color:'#475569',marginBottom:12,marginTop:2}}>{SUBJECT_LEVEL_TITLES[lp.level]}{lp.level<5?` · ${lp.current}/${lp.next} XP`:' · MAX'}</div>
+
+                    {/* Hours allocation */}
+                    <div style={{background:'#1E293B',borderRadius:8,padding:'10px 12px',marginBottom:10}}>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                        <div style={{fontSize:10,color:'#64748B',letterSpacing:2}}>HOURS BUDGET</div>
+                        <div style={{display:'flex',alignItems:'center',gap:6}}>
+                          <button onClick={()=>{const v=Math.max(0,(P.hoursBudget[s.id]||0)-1);P.setHoursBudget({...P.hoursBudget,[s.id]:v})}}
+                            style={{width:24,height:24,borderRadius:4,background:'#0F172A',border:'1px solid #334155',color:'#94A3B8',cursor:'pointer',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center',...f}}>−</button>
+                          <input
+                            type='number' min='0' max={totalAvailable}
+                            value={budget}
+                            onChange={e=>{const v=Math.max(0,parseInt(e.target.value)||0);P.setHoursBudget({...P.hoursBudget,[s.id]:v})}}
+                            style={{width:52,textAlign:'center',background:'#0F172A',border:'1px solid #334155',borderRadius:6,padding:'4px 0',color:'#F1F5F9',fontSize:15,fontWeight:700,...f}}
+                          />
+                          <button onClick={()=>{const v=(P.hoursBudget[s.id]||0)+1;P.setHoursBudget({...P.hoursBudget,[s.id]:v})}}
+                            style={{width:24,height:24,borderRadius:4,background:'#0F172A',border:'1px solid #334155',color:'#94A3B8',cursor:'pointer',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center',...f}}>+</button>
+                          <span style={{fontSize:11,color:'#475569',marginLeft:2}}>hrs</span>
+                        </div>
+                      </div>
+                      {/* Progress against budget */}
+                      {budget > 0 && <>
+                        <div style={{height:8,background:'#0F172A',borderRadius:4,overflow:'hidden',marginBottom:4}}>
+                          <div style={{height:'100%',width:`${pct}%`,background:s.color,borderRadius:4,transition:'width 0.5s',boxShadow:`0 0 6px ${s.color}60`}}/>
+                        </div>
+                        <div style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
+                          <span style={{color:'#10B981'}}>{done}h done</span>
+                          <span style={{color:'#475569'}}>{budget-done}h remaining</span>
+                          <span style={{color:s.color,fontWeight:700}}>{pct}%</span>
+                        </div>
+                      </>}
+                      {budget === 0 && <div style={{fontSize:10,color:'#475569',fontStyle:'italic'}}>No hours allocated yet</div>}
+                    </div>
+
+                    {/* Confidence */}
+                    <div>
+                      <div style={{fontSize:10,color:'#64748B',marginBottom:5}}>
+                        CONFIDENCE: <span style={{color:confColor(conf),fontWeight:700}}>{confLabel(conf)}</span>
+                        <span style={{color:'#475569',fontSize:9,marginLeft:6}}>(+{XP_CONFIDENCE_BONUS[conf]||0} XP bonus)</span>
+                      </div>
+                      <div style={{display:'flex',gap:5}}>
+                        {[1,2,3,4,5].map(v=>(
+                          <button key={v} onClick={()=>P.setConfidence({...P.confidence,[s.id]:v})}
+                            style={{flex:1,padding:'5px 0',borderRadius:5,border:'none',cursor:'pointer',background:conf>=v?confColor(v):'#1E293B',transition:'all 0.15s',fontSize:13}}>●</button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Exam list */}
+                    {exams.length>0&&<div style={{marginTop:10,borderTop:'1px solid #1E293B',paddingTop:8}}>
+                      {exams.map((ex,i)=><div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:10,marginBottom:3}}>
+                        <span style={{color:'#94A3B8'}}>{ex.label}</span>
+                        <span style={{color:ex.date&&daysUntil(ex.date)<=14?'#F59E0B':'#475569'}}>{formatDateShort(ex.date)}</span>
+                      </div>)}
+                    </div>}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          )
+        })()}
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:16}}>
               {SUBJECTS.map(s=>{
                 const conf=P.confidence[s.id]||3, lp=getSubjectLevelProgress(P.xp[s.id]||0)
@@ -482,10 +567,6 @@ export default function Planner({ session, onSignOut }) {
                   </div>
                 )
               })}
-            </div>
-          </div>
-        )}
-
         {/* ═══ SETTINGS ═══ */}
         {tab==='settings'&&(
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>

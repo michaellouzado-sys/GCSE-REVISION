@@ -11,6 +11,7 @@ create table planner_data (
   confidence_levels jsonb default '{}'::jsonb,
   manual_sessions jsonb default '{}'::jsonb,
   subject_xp jsonb default '{}'::jsonb,
+  hours_budget jsonb default '{}'::jsonb,
   croatia_start text default '2026-04-08',
   croatia_end text default '2026-04-11',
   updated_at timestamptz default now()

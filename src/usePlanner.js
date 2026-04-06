@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from './supabase'
 import {
   SUBJECTS, DEFAULT_EXAM_DATES, DEFAULT_BLOCKED, DEFAULT_CROATIA, DEFAULT_STUDY_LEAVE,
-  getCroatiaDates, XP_PER_SESSION, XP_CONFIDENCE_BONUS, subjectWeight,
+  getCroatiaDates, XP_PER_SESSION, XP_CONFIDENCE_BONUS,
   getDaysBetween, daysUntil,
   getSubjectLevel, getOverallLevel, SUBJECT_LEVEL_TITLES, OVERALL_LEVEL_TITLES
 } from './data'
@@ -18,6 +18,8 @@ export function usePlanner(session, addToast) {
   const [xp,             setXP]             = useState({})
   const [croatiaStart,   setCroatiaStart]   = useState(DEFAULT_CROATIA.start)
   const [croatiaEnd,     setCroatiaEnd]     = useState(DEFAULT_CROATIA.end)
+  // hoursBudget: { [subjectId]: number } — hours Dylan has allocated to each subject
+  const [hoursBudget,    setHoursBudget]    = useState({})
   const [loaded,         setLoaded]         = useState(false)
   const saveTimer = useRef(null)
 
@@ -33,13 +35,14 @@ export function usePlanner(session, addToast) {
         if (data.subject_xp)         setXP(data.subject_xp)
         if (data.croatia_start)      setCroatiaStart(data.croatia_start)
         if (data.croatia_end)        setCroatiaEnd(data.croatia_end)
+        if (data.hours_budget)       setHoursBudget(data.hours_budget)
       }
       setLoaded(true)
     }
     load()
   }, [userId])
 
-  const getState = () => ({ examDates, studyLeave, blocked, confidence, manualSessions, xp, croatiaStart, croatiaEnd })
+  const getState = () => ({ examDates, studyLeave, blocked, confidence, manualSessions, xp, croatiaStart, croatiaEnd, hoursBudget })
 
   const save = useCallback((patch) => {
     if (!loaded) return
@@ -55,13 +58,16 @@ export function usePlanner(session, addToast) {
         subject_xp: patch.xp,
         croatia_start: patch.croatiaStart,
         croatia_end: patch.croatiaEnd,
+        hours_budget: patch.hoursBudget,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id' })
     }, 800)
   }, [loaded, userId])
 
-  const getState2 = () => ({ examDates, studyLeave, blocked, confidence, manualSessions, xp, croatiaStart, croatiaEnd })
-  const update = (field, value, setter) => { setter(value); save({ ...getState2(), [field]: value }) }
+  const update = (field, value, setter) => {
+    setter(value)
+    save({ ...getState(), [field]: value })
+  }
 
   const croatiaCache = getCroatiaDates(croatiaStart, croatiaEnd)
   const totalXP = Object.values(xp).reduce((a,b) => a+b, 0)
@@ -83,7 +89,7 @@ export function usePlanner(session, addToast) {
         setTimeout(() => addToast(`Overall Lv${nl} — ${OVERALL_LEVEL_TITLES[nl]}!`, true), 700)
       }
       const next = { ...prev, [sid]:nw }
-      save({ ...getState2(), xp:next })
+      save({ ...getState(), xp:next })
       return next
     })
   }
@@ -92,7 +98,7 @@ export function usePlanner(session, addToast) {
     const lost = XP_PER_SESSION + (XP_CONFIDENCE_BONUS[conf]||0)
     setXP(prev => {
       const next = { ...prev, [sid]:Math.max(0,(prev[sid]||0)-lost) }
-      save({ ...getState2(), xp:next })
+      save({ ...getState(), xp:next })
       return next
     })
   }
@@ -100,67 +106,90 @@ export function usePlanner(session, addToast) {
   const allExams = () => SUBJECTS.flatMap(s => (examDates[s.id]||[]).filter(e=>e.date).map(e => ({ sid:s.id, label:e.label, date:e.date })))
   const getLastExam = id => { const e = examDates[id]; return e?.length ? e.map(x=>x.date).filter(d=>d).sort().pop() : null }
 
-  // Is this a valid revision day? 4h every day EXCEPT travel days and manually blocked dates
+  // Total available revision hours from today to last exam (4h/day, no travel days, no blocked)
+  const getTotalAvailableHours = () => {
+    const allDates = allExams().map(e=>e.date).filter(d=>d).sort()
+    if (!allDates.length) return 0
+    const today = new Date(); today.setHours(0,0,0,0)
+    const end = new Date(allDates[allDates.length-1])
+    let total = 0
+    getDaysBetween(today, end).forEach(day => {
+      const ds = day.toISOString().split('T')[0]
+      if (croatiaCache[ds]?.type === 'travel') return
+      if (blocked[ds]) return
+      total += 4
+    })
+    return total
+  }
+
+  // Total hours allocated in budget
+  const getTotalBudgeted = () => Object.values(hoursBudget).reduce((a,b)=>a+b, 0)
+
+  // Hours completed per subject by scanning manual + auto sessions
+  const getCompletedHours = () => {
+    const result = {}
+    SUBJECTS.forEach(s => { result[s.id] = 0 })
+    Object.entries(manualSessions).forEach(([ds, sessions]) => {
+      sessions.forEach(sess => {
+        if (sess.done && result[sess.sid] !== undefined) result[sess.sid]++
+      })
+    })
+    return result
+  }
+
+  // Is this a valid revision day?
   const isRevisionDay = (dateStr) => {
     if (croatiaCache[dateStr]?.type === 'travel') return false
     if (blocked[dateStr]) return false
     return true
   }
 
-  // Camp days count too — just 4h like any other day
-  const isCampDay = (dateStr) => croatiaCache[dateStr]?.type === 'camp'
-
-  // Suggest 4 subjects for a day using confidence-weighted round robin
-  // Always returns exactly 4 slots (with repeats allowed if fewer than 4 eligible subjects)
+  // Auto-suggest 4 subjects for a day based on budget deficit
+  // Subjects furthest behind their target get priority
   const suggestSubjects = (dateStr) => {
     const date = new Date(dateStr)
+    const completed = getCompletedHours()
 
-    // All subjects that still have exams remaining
+    // Only subjects with remaining exams
     const eligible = SUBJECTS.filter(s => {
       const last = getLastExam(s.id)
       return last && date <= new Date(last)
     })
-
     if (!eligible.length) return []
 
-    // Build weighted pool — lower confidence = more entries in pool
-    const pool = []
-    eligible.forEach(s => {
-      const w = subjectWeight(confidence[s.id]||3)
-      for (let i = 0; i < w; i++) pool.push(s)
-    })
+    // Score each subject: higher score = more behind target = higher priority
+    const scored = eligible.map(s => {
+      const budgeted = hoursBudget[s.id] || 0
+      const done = completed[s.id] || 0
+      const remaining = budgeted - done
+      // If no budget set, fall back to confidence weighting
+      const score = budgeted > 0 ? remaining : (6 - (confidence[s.id]||3))
+      return { s, score }
+    }).sort((a,b) => b.score - a.score)
 
-    // Seed based on date for consistent suggestions
-    const seed = date.getDate() * 7 + date.getMonth() * 31 + date.getFullYear() * 366
-
-    // Pick 4 unique subjects from pool (no repeats within same day)
-    const used = new Set()
+    // Use date as tiebreak seed for variety
+    const seed = date.getDate() * 7 + date.getMonth() * 31
     const slots = []
-    let attempts = 0
+    const used = new Set()
 
-    while (slots.length < 4 && attempts < pool.length * 3) {
-      const idx = (seed + attempts * 17) % pool.length
-      const subj = pool[idx]
-      if (!used.has(subj.id)) {
-        used.add(subj.id)
-        slots.push({ sid: subj.id, topic: '', done: false })
-      }
-      attempts++
+    // Pick top 4 unique subjects
+    for (const { s } of scored) {
+      if (used.has(s.id)) continue
+      used.add(s.id)
+      slots.push({ sid: s.id, topic: '', done: false })
+      if (slots.length === 4) break
     }
 
-    // If we still don't have 4 (fewer than 4 eligible subjects), fill with repeats
-    if (slots.length < 4 && eligible.length > 0) {
-      let i = 0
-      while (slots.length < 4) {
-        slots.push({ sid: eligible[i % eligible.length].id, topic: '', done: false })
-        i++
-      }
+    // Pad to 4 if fewer eligible subjects
+    let i = 0
+    while (slots.length < 4 && eligible.length > 0) {
+      slots.push({ sid: eligible[i % eligible.length].id, topic: '', done: false })
+      i++
     }
 
     return slots
   }
 
-  // Get sessions for a date — manual override takes priority, else auto-suggest
   const getSessionsForDate = (dateStr) => {
     if (manualSessions[dateStr]) return manualSessions[dateStr]
     if (!isRevisionDay(dateStr)) return []
@@ -170,7 +199,7 @@ export function usePlanner(session, addToast) {
   const saveSessionsForDate = (dateStr, sessions) => {
     const next = { ...manualSessions, [dateStr]: sessions }
     setManualSessions(next)
-    save({ ...getState2(), manualSessions: next })
+    save({ ...getState(), manualSessions: next })
   }
 
   const toggleSession = (dateStr, idx) => {
@@ -184,32 +213,6 @@ export function usePlanner(session, addToast) {
     else revokeXP(sess.sid, conf)
   }
 
-  // ── Subject hours stats ──
-  // Calculate total allocated hours and completed hours per subject
-  // from today back to the start of revision (1 Apr 2026) through to last exam
-  const getSubjectHoursStats = () => {
-    const start = new Date('2026-04-01')
-    const allDates = allExams().map(e=>e.date).filter(d=>d).sort()
-    if (!allDates.length) return {}
-
-    const end = new Date(allDates[allDates.length-1])
-    const days = getDaysBetween(start, end)
-    const stats = {}
-    SUBJECTS.forEach(s => { stats[s.id] = { allocated:0, completed:0 } })
-
-    days.forEach(day => {
-      const ds = day.toISOString().split('T')[0]
-      const sessions = getSessionsForDate(ds)
-      sessions.forEach(sess => {
-        if (!stats[sess.sid]) return
-        stats[sess.sid].allocated++
-        if (sess.done) stats[sess.sid].completed++
-      })
-    })
-
-    return stats
-  }
-
   return {
     examDates,      setExamDates:      v => update('examDates', v, setExamDates),
     studyLeave,     setStudyLeave:     v => update('studyLeave', v, setStudyLeave),
@@ -219,7 +222,9 @@ export function usePlanner(session, addToast) {
     xp,             setXP:             v => update('xp', v, setXP),
     croatiaStart,   setCroatiaStart:   v => update('croatiaStart', v, setCroatiaStart),
     croatiaEnd,     setCroatiaEnd:     v => update('croatiaEnd', v, setCroatiaEnd),
-    croatiaCache, totalXP, loaded, allExams, toggleSession, getSubjectHoursStats,
+    hoursBudget,    setHoursBudget:    v => update('hoursBudget', v, setHoursBudget),
+    croatiaCache, totalXP, loaded, allExams, toggleSession,
+    getTotalAvailableHours, getTotalBudgeted, getCompletedHours,
     isDone: (ds, idx) => { const s = getSessionsForDate(ds); return s[idx]?.done||false },
     xpGain: sid => XP_PER_SESSION + (XP_CONFIDENCE_BONUS[confidence[sid]||3]||0),
     isRevisionDay,
