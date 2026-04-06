@@ -526,47 +526,6 @@ export default function Planner({ session, onSignOut }) {
           </div>
           )
         })()}
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:16}}>
-              {SUBJECTS.map(s=>{
-                const conf=P.confidence[s.id]||3, lp=getSubjectLevelProgress(P.xp[s.id]||0)
-                const exams=P.examDates[s.id]||[], firstExam=exams.length?exams.map(e=>e.date).filter(d=>d).sort()[0]:null
-                const days=firstExam?daysUntil(firstExam):null
-                return (
-                  <div key={s.id} style={{...card,border:`1px solid ${s.color}30`}}>
-                    <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
-                      <div style={{fontSize:28,width:40,textAlign:'center'}}>{s.icon}</div>
-                      <div style={{flex:1}}>
-                        <div style={{fontWeight:700,fontSize:15}}>{s.name}</div>
-                        {firstExam&&<div style={{fontSize:11,color:days<=7?'#EF4444':days<=14?'#F59E0B':'#64748B'}}>{exams.length} paper{exams.length!==1?'s':''} · first {formatDate(firstExam)}</div>}
-                      </div>
-                      <div style={{textAlign:'right'}}>
-                        <div style={{fontSize:22,fontWeight:900,color:s.color,lineHeight:1}}>Lv{lp.level}</div>
-                        <div style={{fontSize:10,color:'#475569'}}>{P.xp[s.id]||0} XP</div>
-                      </div>
-                    </div>
-                    <div style={{marginBottom:12}}>
-                      <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
-                        <span style={{fontSize:10,color:s.color}}>{SUBJECT_LEVEL_TITLES[lp.level]}</span>
-                        {lp.level<5?<span style={{fontSize:10,color:'#475569'}}>{lp.current}/{lp.next} XP</span>:<span style={{fontSize:10,color:s.color}}>★ MAX</span>}
-                      </div>
-                      <XPBar current={lp.current} max={lp.next} color={s.color} height={6}/>
-                    </div>
-                    <div>
-                      <div style={{fontSize:11,color:'#64748B',marginBottom:6}}>CONFIDENCE: <span style={{color:confColor(conf),fontWeight:700}}>{confLabel(conf)}</span><span style={{color:'#475569',fontSize:10,marginLeft:8}}>(+{XP_CONFIDENCE_BONUS[conf]||0} XP/session)</span></div>
-                      <div style={{display:'flex',gap:6}}>
-                        {[1,2,3,4,5].map(v=><button key={v} onClick={()=>P.setConfidence({...P.confidence,[s.id]:v})} style={{flex:1,padding:'6px 0',borderRadius:6,border:'none',cursor:'pointer',background:conf>=v?confColor(v):'#1E293B',transition:'all 0.15s',fontSize:14}}>●</button>)}
-                      </div>
-                    </div>
-                    {/* Exam list */}
-                    {exams.length>0&&<div style={{marginTop:12,borderTop:'1px solid #1E293B',paddingTop:10}}>
-                      {exams.map((ex,i)=><div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:11,marginBottom:4}}>
-                        <span style={{color:'#94A3B8'}}>{ex.label}</span>
-                        <span style={{color:ex.date&&daysUntil(ex.date)<=14?'#F59E0B':'#64748B'}}>{formatDateShort(ex.date)}</span>
-                      </div>)}
-                    </div>}
-                  </div>
-                )
-              })}
         {/* ═══ SETTINGS ═══ */}
         {tab==='settings'&&(
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
